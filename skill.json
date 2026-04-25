@@ -1,0 +1,43 @@
+{
+  "name": "SEM Analyzer",
+  "version": "0.1.0",
+  "description": "Guided structural equation modeling (SEM) analysis with automated report generation",
+  "triggers": [
+    "SEM analysis",
+    "structural equation modeling",
+    "SEM",
+    "path analysis",
+    "CFA",
+    "latent growth",
+    "mediation analysis",
+    "multigroup analysis"
+  ],
+  "parameters": [
+    {
+      "name": "data_source",
+      "type": "string",
+      "required": false,
+      "description": "Data source: file path or pasted text data"
+    },
+    {
+      "name": "hypothesis",
+      "type": "string",
+      "required": false,
+      "description": "Natural language description of research hypotheses"
+    }
+  ],
+  "capabilities": [
+    "data_loading",
+    "interactive_clarification",
+    "model_visualization",
+    "sem_fitting",
+    "report_generation",
+    "session_continuity"
+  ],
+  "default_settings": {
+    "missing_method": "delete",
+    "estimation": "ML",
+    "output_format": "markdown",
+    "auto_confirm": false
+  }
+}

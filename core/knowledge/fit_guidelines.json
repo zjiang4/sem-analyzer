@@ -1,0 +1,60 @@
+{
+  "description": "SEM拟合指数评价标准 (参考 Hu & Bentler, 1999; Kline, 2015)",
+  "indices": {
+    "cfi": {
+      "label": "Comparative Fit Index",
+      "excellent": 0.97,
+      "good": 0.95,
+      "acceptable": 0.90,
+      "poor": 0.80,
+      "interpretation": {
+        "excellent": "模型与实际数据拟合优秀",
+        "good": "模型拟合良好，可接受",
+        "acceptable": "模型基本可接受，但有一定改进空间",
+        "poor": "模型拟合不佳，需要修正"
+      }
+    },
+    "tli": {
+      "label": "Tucker-Lewis Index",
+      "excellent": 0.97,
+      "good": 0.95,
+      "acceptable": 0.90,
+      "poor": 0.80,
+      "interpretation": "与CFI类似，但对模型复杂度有惩罚"
+    },
+    "rmsea": {
+      "label": "Root Mean Square Error of Approximation",
+      "excellent": 0.05,
+      "good": 0.08,
+      "acceptable": 0.10,
+      "poor": 0.12,
+      "90ci_excellent": [0.0, 0.05],
+      "90ci_good": [0.0, 0.08],
+      "interpretation": {
+        "excellent": "近似误差很小，模型拟合优秀",
+        "good": "近似误差可接受",
+        "acceptable": "误差处于边界，需要谨慎解释",
+        "poor": "误差较大，模型需要修正"
+      }
+    },
+    "srmr": {
+      "label": "Standardized Root Mean Square Residual",
+      "excellent": 0.08,
+      "good": 0.08,
+      "acceptable": 0.10,
+      "poor": 0.12,
+      "interpretation": {
+        "excellent": "残差很小，拟合优秀",
+        "good": "残差可接受",
+        "acceptable": "残差略高，可接受",
+        "poor": "残差大，模型不理想"
+      }
+    }
+  },
+  "notes": [
+    "建议同时考察多个指标，不要只看单一数值",
+    "CFI/TLI > 0.90 是可接受的最低标准",
+    "RMSEA < 0.08 和 SRMR < 0.08 通常表示良好拟合",
+    "如果样本量大，CFI/TLI可能偏低，需结合实际判断"
+  ]
+}

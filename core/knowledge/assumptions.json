@@ -1,0 +1,67 @@
+{
+  "description": "SEM分析前提假设与检查方法",
+  "assumptions": [
+    {
+      "name": "多元正态性",
+      "required_for": "ML估计",
+      "check_methods": [
+        "Mardia偏度/峰度检验",
+        "单变量偏度/峰度（|skew|<2, |kurtosis|<7）",
+        "Q-Q图"
+      ],
+      "violation_consequences": "标准误可能有偏，CFI/TLI偏低",
+      "remedies": [
+        "使用稳健估计 (MLR, WLS)",
+        "数据转换（对数、Box-Cox）",
+        "使用Bootstrap置信区间"
+      ]
+    },
+    {
+      "name": "线性关系",
+      "check_methods": [
+        "散点图矩阵",
+        "残差图"
+      ],
+      "violation_consequences": "路径系数估计不准确",
+      "remedies": [
+        "非线性项（二次项）",
+        "分段回归"
+      ]
+    },
+    {
+      "name": "无严重共线性",
+      "check_methods": [
+        "方差膨胀因子 VIF < 5 (或 <10)"
+      ],
+      "violation_consequences": "系数不稳定，标准误扩大",
+      "remedies": [
+        "删除冗余变量",
+        "合并因子（主成分分析）"
+      ]
+    },
+    {
+      "name": "无奇异矩阵",
+      "check_methods": [
+        "相关矩阵行列式非零",
+        "没有完全共线性（r=1）"
+      ],
+      "violation_consequences": "模型不可识别，拟合失败",
+      "remedies": [
+        "删除或合并完全相关的变量"
+      ]
+    },
+    {
+      "name": "正确的模型识别",
+      "check_methods": [
+        "自由度 df >= 0",
+        "t-rule: t = (p+q)(p+q+1)/2 - (p)(q)"
+      ],
+      "violation_consequences": "参数无法唯一估计",
+      "remedies": [
+        "固定一个载荷为1（scale fixing）",
+        "减少潜变量间路径",
+        "增加测量题项"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+[project]
+name = "sem-analyzer"
+version = "0.2.0"
+description = "Guided SEM analysis skill with textbook integration"
+requires-python = ">=3.12"
+dependencies = [
+    "semopy>=1.0.0",
+    "pandas>=1.3.0",
+    "numpy>=1.20.0",
+]

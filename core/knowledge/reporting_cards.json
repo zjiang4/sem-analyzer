@@ -1,0 +1,22 @@
+{
+  "description": "SEM结果报告的标准措辞模板",
+  "sections": {
+    "methods": {
+      "sem_intro": "采用结构方程模型 (Structural Equation Modeling, SEM) 对数据进行检验。",
+      "estimation": "使用最大似然估计 (Maximum Likelihood, ML) 进行参数估计。",
+      "software": "分析使用 Python semopy 包 (https://semopy.com) 完成。",
+      "missing_handling": "缺失值采用 {method} 处理。",
+      "fit_indices": "模型拟合优度通过以下指标评估：卡方检验 (χ²)、比较拟合指数 (CFI)、Tucker-Lewis 指数 (TLI)、近似误差均方根 (RMSEA) 及其90%置信区间、标准化残差均方根 (SRMR)。"
+    },
+    "results": {
+      "fit_summary_template": "模型拟合指数为：χ²({df}) = {chi2:.2f}, p = {p:.3f}; CFI = {cfi:.3f}, TLI = {tli:.3f}, RMSEA = {rmsea:.3f} (90% CI [{rmsea_ci_low:.3f}, {rmsea_ci_high:.3f}]), SRMR = {srmr:.3f}。",
+      "path_coefficient_template": "X对Y有{significance}影响（β = {beta:.3f}, SE = {se:.3f}, z = {z:.3f}, p = {p:.3f}）。",
+      "mediation_template": "间接效应为 {ind_effect:.3f}，95%置信区间为 [{ci_low:.3f}, {ci_high:.3f}]，占总效应的 {pct:.1f}%。",
+      "loading_template": "所有题项在对应潜变量上的因子载荷介于 {min_load:.2f} 至 {max_load:.2f} 之间，表明测量模型可接受。"
+    },
+    "discussion": {
+      "implication_template": "研究发现 {finding}，与理论假设一致，说明 {meaning}。",
+      "limitation_template": "本研究存在以下局限：样本量有限（N={n}），可能影响统计检验力；数据为横截面设计，无法推断因果关系；未考虑潜在调节变量。"
+    }
+  }
+}

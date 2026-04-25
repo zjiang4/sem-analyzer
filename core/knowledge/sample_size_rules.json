@@ -1,0 +1,30 @@
+{
+  "description": "SEM样本量建议规则",
+  "rules": [
+    {
+      "name": "绝对样本量",
+      "min": 100,
+      "recommended": 200,
+      "note": "N<100 时模型可能不稳定，标准误估计不准"
+    },
+    {
+      "name": "每参数样本量",
+      "ratio_min": 10,
+      "ratio_ideal": 20,
+      "note": "每个自由参数至少需要10个观测，理想是20"
+    },
+    {
+      "name": "复杂模型",
+      "complex_model_params": 40,
+      "complex_model_min_n": 400,
+      "note": "潜变量多 (>5) 或路径复杂时，建议 N>400"
+    }
+  ],
+  "formulas": {
+    "rough_estimate": "min_n = max(100, n_parameters * 10)"
+  },
+  "references": [
+    "Kline (2015): Principles and Practice of Structural Equation Modeling",
+    "Hair et al. (2010): Multivariate Data Analysis"
+  ]
+}
