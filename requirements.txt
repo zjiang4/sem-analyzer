@@ -1,0 +1,12 @@
+semopy>=2.3
+pandas>=1.5
+numpy>=1.24
+scipy>=1.10
+statsmodels>=0.14
+scikit-learn>=1.2
+matplotlib>=3.5
+factor_analyzer>=0.5
+girth>=0.8
+lifelines>=0.29
+pymc>=5.0
+miceforest>=6.0

@@ -76,16 +76,6 @@ sem-analyzer/
 | **Mediation** | X → M → Y indirect effects | BCa bootstrap CIs (default B=500) |
 | **Multigroup** | Measurement invariance | Interactive configural → metric → scalar |
 
-## Automated Inference Evaluation
-
-Evaluated on 50 synthetic datasets per condition:
-
-| Heuristic | Sensitivity | Specificity |
-|-----------|------------|-------------|
-| Time-series detection | 1.000 | 1.000 |
-| Sobel mediation test | 1.000 | 1.000 |
-| KS grouping suggestion | 1.000 | 0.720 |
-
 ## Testing
 
 ```bash

@@ -20,6 +20,14 @@ class ModelDraft:
         # Notes
         self.notes: str = ""
 
+    @property
+    def latent_vars(self):
+        return self.latent
+
+    @latent_vars.setter
+    def latent_vars(self, value):
+        self.latent = value
+
     def add_latent(self, name: str, items: List[str], var_type: str = "reflective") -> None:
         """Add or update a latent variable."""
         if name in self.latent:

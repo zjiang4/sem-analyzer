@@ -32,7 +32,7 @@ class Clarifier:
         session.available_columns = cols
 
         msg = [
-            "Data loaded successfully ({} rows x {} columns).\n",
+            f"Data loaded successfully ({len(df)} rows x {len(df.columns)} columns).\n",
             "Let's define your research design together. I'll guide you step by step; you can revise at any time.\n",
             "===========================================",
             "Data Overview",

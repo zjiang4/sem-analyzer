@@ -220,6 +220,49 @@ class ReportFormatter:
                         lines.append(f"- {path}: [{lo:.3f}, {up:.3f}]")
                     lines.append("")
 
+        # 5b. Additional module results
+        module_results = []
+        for attr_name, label in [
+            ('bayesian_result', 'Bayesian SEM'),
+            ('multilevel_result', 'Multilevel SEM'),
+            ('dsem_result', 'Dynamic SEM'),
+            ('mixture_result', 'Mixture SEM'),
+        ]:
+            result = getattr(session, attr_name, None)
+            if result is not None:
+                module_results.append((label, result))
+
+        if module_results:
+            if not advanced_results:
+                lines.append("## 5. Additional Analysis Results")
+            for label, result in module_results:
+                lines.append(f"### {label}")
+                if hasattr(result, 'summary') and isinstance(result.summary, pd.DataFrame):
+                    lines.append(result.summary.to_string(max_rows=15))
+                if hasattr(result, 'fit_stats') and result.fit_stats:
+                    lines.append("")
+                    for k, v in result.fit_stats.items():
+                        if isinstance(v, float):
+                            lines.append(f"  {k}: {v:.3f}")
+                        else:
+                            lines.append(f"  {k}: {v}")
+                if hasattr(result, 'within_parameters') and isinstance(result.within_parameters, pd.DataFrame):
+                    lines.append("\nWithin-level parameters:")
+                    lines.append(result.within_parameters.to_string(max_rows=10))
+                if hasattr(result, 'between_parameters') and isinstance(result.between_parameters, pd.DataFrame):
+                    lines.append("\nBetween-level parameters:")
+                    lines.append(result.between_parameters.to_string(max_rows=10))
+                if hasattr(result, 'convergence_diagnostics') and result.convergence_diagnostics:
+                    lines.append("\nConvergence diagnostics:")
+                    diag = result.convergence_diagnostics
+                    for k, v in diag.items():
+                        lines.append(f"  {k}: {v}")
+                if hasattr(result, 'class_proportions') and result.class_proportions:
+                    lines.append("\nClass proportions:")
+                    for cls, prop in result.class_proportions.items():
+                        lines.append(f"  Class {cls}: {prop:.1%}")
+                lines.append("")
+
         # 6. Recommended References
         lines.append("## 6. Recommended References")
         retriever = getattr(session, 'textbook_retriever', None)
