@@ -1,0 +1,34 @@
+# Logs and temporary files
+*.log
+last_errors.txt
+test_current_status.log
+opencode_*.log
+opencode_*.txt
+fix_*.patch
+
+# Test outputs (but keep test data)
+sem_test_report.txt
+
+# Sensitive files - never commit tokens or credentials
+.env
+*.pem
+*.key
+secrets/
+credentials.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
