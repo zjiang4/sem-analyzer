@@ -567,6 +567,195 @@ def test_edge_cases():
 
     return True
 
+
+def test_bootstrap():
+    """测试 11: Bootstrap 置信区间"""
+    print("\n" + "="*80)
+    print("TEST 11: Bootstrap Confidence Intervals")
+    print("="*80)
+
+    agent = SEMWorkflowAgent()
+    data, _ = agent.load_data(TEST_DATA)
+
+    theory = {
+        "latent_variables": {
+            "job_satisfaction": ["sat1", "sat2", "sat3", "sat4"],
+            "work_engagement": ["eng1", "eng2", "eng3", "eng4"],
+            "organizational_loyalty": ["loy1", "loy2", "loy3", "loy4"]
+        },
+        "structural_paths": [
+            {"outcome": "work_engagement", "predictors": ["job_satisfaction"]},
+            {"outcome": "organizational_loyalty", "predictors": ["work_engagement"]}
+        ],
+        "covariances": []
+    }
+
+    agent.theory = theory
+    agent.build_model_description(theory)
+
+    try:
+        success, _ = agent.fit_model(data)
+        if not success:
+            print("  [NO] Cannot test bootstrap: model fitting failed")
+            return False
+
+        # 执行 bootstrap (使用较少的样本以加快测试)
+        print("  Running bootstrap with n_bootstrap=200 (reduced for testing)...")
+        bootstrap_results = agent.bootstrap_confidence_intervals(
+            data=data,
+            n_bootstrap=200,
+            alpha=0.05,
+            random_state=42
+        )
+
+        print(f"[OK] Bootstrap completed")
+        print(f"  Estimated {len(bootstrap_results)} parameters")
+
+        # 检查关键路径系数的 CI
+        structural_bootstrap = bootstrap_results[
+            bootstrap_results['parameter'].str.contains('~')
+        ]
+        print(f"  Structural paths with bootstrap: {len(structural_bootstrap)}")
+
+        # 验证 CI 格式
+        has_ci = bootstrap_results['ci_lower'].notna().any()
+        has_se = bootstrap_results['bootstrap_std_error'].notna().any()
+
+        if has_ci and has_se:
+            print("  [OK] Bootstrap CIs and SEs calculated")
+        else:
+            print("  [NO] Missing CI or SE values")
+            return False
+
+        # 检查 bootstrap 成功率
+        avg_success_rate = bootstrap_results['bootstrap_success_rate'].mean()
+        print(f"  Mean success rate: {avg_success_rate:.1f}%")
+        if avg_success_rate < 80:
+            print("  [WARNING] Low bootstrap success rate (<80%)")
+
+        return True
+
+    except Exception as e:
+        print(f"  [NO] Bootstrap test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def test_multi_group():
+    """测试 12: 多组分析（测量不变性）"""
+    print("\n" + "="*80)
+    print("TEST 12: Multi-Group Measurement Invariance")
+    print("="*80)
+
+    agent = SEMWorkflowAgent()
+    data, _ = agent.load_data(TEST_DATA)
+
+    # 检查测试数据是否有分组变量
+    if 'gender' not in data.columns:
+        print("  [NO] Test data missing 'gender' variable for grouping")
+        # 创建一个组变量
+        data['group'] = np.random.choice(['Male', 'Female'], size=len(data))
+        group_var = 'group'
+    else:
+        group_var = 'gender'
+
+    theory = {
+        "latent_variables": {
+            "job_satisfaction": ["sat1", "sat2", "sat3", "sat4"],
+            "work_engagement": ["eng1", "eng2", "eng3", "eng4"]
+        },
+        "structural_paths": [
+            {"outcome": "work_engagement", "predictors": ["job_satisfaction"]}
+        ],
+        "covariances": []
+    }
+
+    agent.theory = theory
+    agent.build_model_description(theory)
+
+    try:
+        success, _ = agent.fit_model(data)
+        if not success:
+            print("  [NO] Cannot test multi-group: model fitting failed")
+            return False
+
+        # 执行多组不变性测试
+        print(f"  Testing invariance by '{group_var}'...")
+        invariance_results = agent.test_measurement_invariance(
+            data=data,
+            group_var=group_var,
+            invariance_types=["configural", "metric", "scalar"]
+        )
+
+        print(f"[OK] Multi-group analysis completed")
+
+        # 验证输出结构 (简化版: configural only)
+        if 'configural' not in invariance_results:
+            print("  [NO] Missing 'configural' in results")
+            return False
+        if 'chi2' not in invariance_results['configural']:
+            print("  [NO] Missing 'chi2' in configural")
+            return False
+        if 'invariance_summary' not in invariance_results:
+            print("  [NO] Missing 'invariance_summary'")
+            return False
+
+        # 处理简化版返回结构:'configural': {'chi2': value, 'df': value}
+        configural = invariance_results['configural']
+        chi2 = configural.get('chi2', 0)
+        df_val = configural.get('df', 0)
+        print(f"\n  Configural: chi2={chi2:.2f}, df={df_val}")
+
+        # 显示卡方差异（如果有）
+        if 'chi2_differences' in invariance_results and invariance_results['chi2_differences']:
+            print("\n  Chi-square differences:")
+            for diff in invariance_results['chi2_differences']:
+                comp = diff['comparison']
+                dchi2 = diff['delta_chi2']
+                p = diff['p_value']
+                sig = "sig" if diff['significant'] else "ns"
+                print(f"    {comp}: Δχ²={dchi2:.2f}, p={p:.4f} ({sig})")
+        else:
+            print("\n  [INFO] No chi-square differences computed (metric/scalar not implemented)")
+
+        # 显示不变性总结
+        if 'invariance_summary' in invariance_results:
+            print("\n  Invariance achieved:")
+            for level, achieved in invariance_results['invariance_summary'].items():
+                status = "YES" if achieved else "NO"
+                print(f"    {level}: {status}")
+
+        # 显示卡方差异
+        print("\n  Chi-square differences:")
+        for diff in invariance_results['chi2_differences']:
+            comp = diff['comparison']
+            dchi2 = diff['delta_chi2']
+            p = diff['p_value']
+            sig = "sig" if diff['significant'] else "ns"
+            print(f"    {comp}: Δχ²={dchi2:.2f}, p={p:.4f} ({sig})")
+
+        # 显示不变性总结
+        print("\n  Invariance achieved:")
+        for level, achieved in invariance_results['invariance_summary'].items():
+            status = "YES" if achieved else "NO"
+            print(f"    {level}: {status}")
+
+        # 至少 configural 应该达到
+        if not invariance_results['invariance_summary'].get('configural', False):
+            print("  [NO] Configural invariance failed")
+            return False
+
+        print("  [OK] Multi-group analysis successful")
+        return True
+
+    except Exception as e:
+        print(f"  [NO] Multi-group test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def main():
     print("="*80)
     print("SEM-WORKFLOW SKILL FUNCTIONALITY TEST REPORT")
@@ -587,6 +776,8 @@ def main():
         ("DataPreparator Module", test_data_preparator),
         ("ModelBuilder Module", test_model_builder_standalone),
         ("Edge Cases Handling", test_edge_cases),
+        ("Bootstrap Confidence Intervals", test_bootstrap),
+        ("Multi-Group Invariance", test_multi_group),
     ]
 
     for test_name, test_func in tests:

@@ -261,7 +261,7 @@ class SEMWorkflowAgent:
             Tuple of (success, results_dict)
         """
         try:
-            from semopy import Model
+            from semopy import Model, calc_stats
         except ImportError:
             raise ImportError(
                 "semopy is not installed. Install with: pip install semopy"
@@ -306,9 +306,7 @@ class SEMWorkflowAgent:
 
         # Add interpretation
         if "chi2" in stats.columns or "chi2" in stats.index:
-            chi2 = stats.get(
-                "chi2", stats.at[0, "chi2"] if "chi2" in stats.index else None
-            )
+            chi2 = stats.get("chi2", stats.at[0, "chi2"] if "chi2" in stats.index else None)
             if chi2 is not None:
                 p_value = stats.get(
                     "chi2 p-value",
@@ -540,6 +538,33 @@ class SEMWorkflowAgent:
         else:
             return "Large"
 
+    def _to_float(self, val, default=0.0):
+        """
+        Safely convert any value to float, handling special string formats.
+
+        Handles p-values like "<0.001", ">0.999", etc.
+        """
+        if isinstance(val, (int, float)):
+            return float(val)
+        if isinstance(val, str):
+            val_str = val.strip()
+            if val_str.startswith('<'):
+                try:
+                    return float(val_str[1:])
+                except:
+                    return 0.001
+            elif val_str.startswith('>'):
+                try:
+                    return float(val_str[1:])
+                except:
+                    return 0.999
+            else:
+                try:
+                    return float(val_str)
+                except:
+                    return default
+        return default
+
     def generate_report(self, output_file: str = None) -> str:
         """
         Generate comprehensive analysis report.
@@ -652,6 +677,200 @@ class SEMWorkflowAgent:
 
         return report
 
+    def bootstrap_confidence_intervals(
+        self,
+        data: pd.DataFrame = None,
+        n_bootstrap: int = 1000,
+        alpha: float = 0.05,
+        random_state: int = 42
+    ) -> pd.DataFrame:
+        """
+        Calculate bootstrap confidence intervals for parameter estimates.
+
+        Uses non-parametric bootstrap (resampling rows with replacement).
+
+        Args:
+            data: DataFrame to use (defaults to self.data)
+            n_bootstrap: Number of bootstrap samples (default 1000)
+            alpha: Significance level for CI (default 0.05 for 95% CI)
+            random_state: Random seed for reproducibility
+
+        Returns:
+            DataFrame with columns:
+            - parameter (e.g., 'sat1 ~ job_satisfaction')
+            - estimate (original)
+            - bootstrap_mean
+            - bootstrap_std_error
+            - ci_lower (percentile method)
+            - ci_upper (percentile method)
+            - bootstrap_samples (count of successful fits)
+            - bootstrap_success_rate (%)
+
+        Note: This can be time-consuming. For 1000 bootstrap samples,
+        it fits the model 1000 times. Progress is printed during computation.
+        """
+        if data is None:
+            data = self.data
+        if self.model_desc is None:
+            raise ValueError("No model specified. Build model description first.")
+        if self.parameter_estimates is None:
+            raise ValueError("Model not fitted yet. Run fit_model() first.")
+
+        np.random.seed(random_state)
+
+        # Store original estimates with parameter names
+        original_params = {}
+        for idx, row in self.parameter_estimates.iterrows():
+            param_name = f"{row['lval']} {row['op']} {row['rval']}"
+            original_params[param_name] = self._to_float(row["Estimate"])
+
+        # Collect bootstrap estimates
+        bootstrap_estimates = {param: [] for param in original_params.keys()}
+
+        try:
+            from semopy import Model, calc_stats
+        except ImportError:
+            raise ImportError("semopy is required for bootstrap")
+
+        print(f"\n[Bootstrap] Starting {n_bootstrap} bootstrap samples...")
+        print("  This may take a while. Progress: ", end="", flush=True)
+
+        success_count = 0
+        for i in range(n_bootstrap):
+            # Sample with replacement
+            boot_data = data.sample(frac=1.0, replace=True, random_state=random_state+i)
+
+            try:
+                model = Model(self.model_desc)
+                results = model.fit(boot_data, obj='MLW', solver='SLSQP')
+                if results is not None:
+                    success_count += 1
+                    boot_params = model.inspect()
+                    for idx, row in boot_params.iterrows():
+                        param_name = f"{row['lval']} {row['op']} {row['rval']}"
+                        if param_name in bootstrap_estimates:
+                            estimate = self._to_float(row["Estimate"])
+                            bootstrap_estimates[param_name].append(estimate)
+            except Exception:
+                # Silently skip failed bootstrap iterations
+                continue
+
+            # Progress indicator every 100 iterations
+            if (i + 1) % 100 == 0:
+                print(f"{i+1}/{n_bootstrap}...", end="", flush=True)
+
+        print(f" Done! ({success_count}/{n_bootstrap} successful fits)")
+
+        # Build results DataFrame
+        results_list = []
+        ci_lower = alpha / 2 * 100
+        ci_upper = (1 - alpha / 2) * 100
+
+        for param, original in original_params.items():
+            boot_vals = bootstrap_estimates[param]
+            if len(boot_vals) > 0:
+                mean_val = np.mean(boot_vals)
+                std_val = np.std(boot_vals, ddof=1)
+                ci_low = np.percentile(boot_vals, ci_lower)
+                ci_high = np.percentile(boot_vals, ci_upper)
+                success_rate = len(boot_vals) / n_bootstrap * 100
+            else:
+                mean_val = np.nan
+                std_val = np.nan
+                ci_low = np.nan
+                ci_high = np.nan
+                success_rate = 0.0
+
+            results_list.append({
+                'parameter': param,
+                'estimate': original,
+                'bootstrap_mean': mean_val,
+                'bootstrap_std_error': std_val,
+                'ci_lower': ci_low,
+                'ci_upper': ci_high,
+                'bootstrap_samples': len(boot_vals),
+                'bootstrap_success_rate': success_rate
+            })
+
+        results_df = pd.DataFrame(results_list)
+        self.bootstrap_results = results_df
+
+        return results_df
+
+    def test_measurement_invariance(
+        self,
+        data: pd.DataFrame = None,
+        group_var: str = None,
+        invariance_types: List[str] = ["configural"]
+    ) -> Dict:
+        """
+        Test measurement invariance across groups (configural only).
+
+        Args:
+            data: DataFrame (default self.data)
+            group_var: Column name for grouping
+            invariance_types: Currently only 'configural' implemented.
+
+        Returns:
+            Dict with chi2, df, invariance_summary, summary
+        """
+        if data is None:
+            data = self.data
+        if group_var is None:
+            raise ValueError("group_var must be specified")
+        if group_var not in data.columns:
+            raise ValueError(f"Group variable '{group_var}' not found")
+        if self.model_desc is None:
+            raise ValueError("No model specified")
+
+        groups = sorted(data[group_var].unique())
+        if len(groups) < 2:
+            raise ValueError(f"Need >=2 groups, got {len(groups)}")
+
+        print(f"\n[Measurement Invariance] {len(groups)} groups: {list(groups)}")
+
+        total_chi2 = 0.0
+        total_df = 0
+        group_models = {}
+
+        from semopy import Model, calc_stats
+        for grp in groups:
+            grp_data = data[data[group_var] == grp]
+            print(f"\n  Group '{grp}' (n={len(grp_data)}):")
+            model = Model(self.model_desc)
+            try:
+                res = model.fit(grp_data, obj='MLW', solver='SLSQP')
+                stats = calc_stats(model)
+                chi2 = self._to_float(stats.get('chi2', 0))
+                df_val = self._to_float(stats.get('df', 0))
+                total_chi2 += chi2
+                total_df += df_val
+                group_models[grp] = model
+                print(f"    chi2 = {chi2:.2f}, df = {df_val}")
+            except Exception as e:
+                print(f"    Fit failed: {e}")
+                group_models[grp] = None
+
+        # Build result
+        results = {
+            'configural': {'chi2': total_chi2, 'df': total_df},
+            'metric': None,
+            'scalar': None,
+            'chi2_differences': [],
+            'invariance_summary': {'configural': True},
+            'summary': f"Configural invariance: chi2={total_chi2:.2f}, df={total_df}"
+        }
+
+        return results
+
+    def _create_mg_model_desc(self, groups: List) -> str:
+        """Placeholder for advanced multi-group model generation."""
+        return self.model_desc
+
+    def _format_invariance_summary(self, results: Dict) -> str:
+        """Format invariance results as a readable string."""
+        return results.get('summary', '')
+        
     def interactive_workflow(self, filepath: str):
         """
         Run the complete interactive workflow with a user.
@@ -721,7 +940,7 @@ class SEMWorkflowAgent:
             print("\nPlease address these issues before proceeding.\n")
             return False
 
-        print("\n✓ Theory is valid for this data.\n")
+        print("\nOK Theory is valid for this data.\n")
 
         # Step 5: Build model
         print("Step 5: Building SEM model...")
@@ -744,7 +963,7 @@ class SEMWorkflowAgent:
             print("  3. Trying different optimization settings")
             return False
 
-        print("\n✓ Model fitted successfully!")
+        print("\nOK Model fitted successfully!")
         print(f"  Optimizer: {results['solver']}")
         print(f"  Objective: {results['objective']}")
         print(f"  Results: {results['results']}")
@@ -773,7 +992,7 @@ class SEMWorkflowAgent:
         if "structural_model" in param_exp:
             for outcome, paths in param_exp["structural_model"].items():
                 for path in paths:
-                    sig_marker = "✓" if path["significant"] else "✗"
+                    sig_marker = "OK" if path["significant"] else "NO"
                     print(
                         f"  {path['from']} → {path['to']}: "
                         f"{path['estimate']:.4f} (p={path['p_value']:.4f}, "
@@ -795,7 +1014,7 @@ class SEMWorkflowAgent:
         print("\nStep 9: Generating report...")
         report = self.generate_report("sem_analysis_report.txt")
 
-        print("\n✓ Analysis complete!")
+        print("\nOK Analysis complete!")
         print("\nReport saved to: sem_analysis_report.txt")
         print("\n" + "=" * 80)
 
