@@ -533,31 +533,72 @@ model = Model(model_desc)
 results = model.fit(data)  # Uses polychoric correlations
 ```
 
-### Multi-Group Analysis
+### Multi-Group Analysis (Measurement Invariance)
 
 ```python
-from semopy import ModelMeans
+# Using the agent method
+agent.theory = your_theory
+agent.build_model_description(your_theory)
+agent.fit_model(data)
 
-# Create model for each group
-model = Model(model_desc)
+# Test configural invariance across groups
+invariance = agent.test_measurement_invariance(
+    data=data,
+    group_var='group',
+    invariance_types=['configural', 'metric', 'scalar']
+)
 
-# Fit to group 1
-results1 = model.fit(data[data['group'] == 1])
-
-# Fit to group 2
-results2 = model.fit(data[data['group'] == 2])
-
-# Compare (invariance testing)
+print(f"Configural: {invariance['summary']}")
+print(f"Invariance achieved: {invariance['invariance_summary']}")
 ```
 
-### Bootstrap Standard Errors
+**Note:** Currently supports configural invariance. Metric and scalar invariance require additional implementation.
 
-For robust inference:
+### Bootstrap Confidence Intervals
+
+For robust standard errors and confidence intervals:
 
 ```python
-# semopy doesn't have built-in bootstrap
-# Alternative: Use sandwich standard errors or bootstrap manually
+# After fitting model
+agent.fit_model(data)
+
+# Run bootstrap (e.g., 1000 samples)
+bootstrap_results = agent.bootstrap_confidence_intervals(
+    data=data,
+    n_bootstrap=1000,
+    alpha=0.05,
+    random_state=42
+)
+
+# View CIs for parameters
+print(bootstrap_results[['parameter', 'estimate', 'bootstrap_std_error', 'ci_lower', 'ci_upper']])
 ```
+
+### Mediation Analysis
+
+Test indirect effects (X → M → Y):
+
+```python
+# Model must include: M ~ X and Y ~ M + X
+agent.fit_model(data)
+
+mediation = agent.analyze_mediation(
+    mediator='work_engagement',
+    outcome='organizational_loyalty',
+    predictor='job_satisfaction',
+    n_bootstrap=1000,
+    alpha=0.05
+)
+
+print(f"Indirect effect: {mediation['indirect_effect']:.3f}")
+print(f"95% CI: [{mediation['indirect_ci'][0]:.3f}, {mediation['indirect_ci'][1]:.3f}]")
+print(f"Mediation type: {mediation['mediation_type']}")
+```
+
+**Interpretation:**
+- If indirect effect CI excludes 0 → mediation present
+- If direct effect also non-significant → full mediation
+- If direct effect remains significant → partial mediation
 
 ## Verification Before Completion
 

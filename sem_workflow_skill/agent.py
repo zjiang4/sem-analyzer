@@ -870,7 +870,229 @@ class SEMWorkflowAgent:
     def _format_invariance_summary(self, results: Dict) -> str:
         """Format invariance results as a readable string."""
         return results.get('summary', '')
-        
+
+    def suggest_modifications(self, residual_threshold: float = 0.1) -> List[Dict]:
+        """
+        Get suggestions for model modifications based on residual analysis.
+
+        Analyzes residuals between observed and model-implied covariances to
+        identify indicator pairs with high residuals that could be freed.
+
+        Args:
+            residual_threshold: Threshold for normalized residual magnitude (default 0.1)
+
+        Returns:
+            List of modification suggestions, sorted by severity.
+            Each suggestion includes: type, variables, residual_value, suggestion, caveat.
+
+        Note: Always review suggestions theoretically before adding parameters.
+        """
+        from .diagnostics import SEMDiagnostics
+
+        if self.model is None:
+            raise ValueError("Model not fitted yet. Run fit_model() first.")
+
+        suggestions = SEMDiagnostics.suggest_modifications(
+            self.model, self.data, residual_threshold=residual_threshold
+        )
+
+        # Print summary
+        print(f"\n[Modification Indices] Analysis complete")
+        if suggestions:
+            print(f"  Found {len(suggestions)} potential modifications:")
+            for i, s in enumerate(suggestions[:5], 1):  # Show top 5
+                print(f"  {i}. {s['suggestion']}")
+            if len(suggestions) > 5:
+                print(f"  ... and {len(suggestions)-5} more")
+        else:
+            print("  No problematic residuals detected.")
+
+        return suggestions
+
+    def analyze_mediation(self, mediator: str, outcome: str, predictor: str,
+                          n_bootstrap: int = 1000, alpha: float = 0.05) -> Dict:
+        """
+        Analyze mediation effect: X (predictor) → M (mediator) → Y (outcome).
+
+        This method tests whether the effect of X on Y is partially or fully
+        transmitted through a mediator M. It calculates direct, indirect, and
+        total effects, and uses bootstrap to obtain confidence intervals.
+
+        Args:
+            mediator: Name of the mediator variable (must be in the model)
+            outcome: Name of the outcome variable (must be in the model)
+            predictor: Name of the predictor variable (must be in the model)
+            n_bootstrap: Number of bootstrap samples (default 1000)
+            alpha: Significance level for CIs (default 0.05)
+
+        Returns:
+            Dictionary with:
+                - direct_effect: Estimate of direct path X → Y
+                - indirect_effect: Product of X → M and M → Y
+                - total_effect: direct + indirect
+                - direct_ci: (lower, upper) CI for direct effect
+                - indirect_ci: (lower, upper) CI for indirect effect
+                - total_ci: (lower, upper) CI for total effect
+                - mediated: True if indirect effect is significant (CI excludes 0)
+                - mediation_type: 'full', 'partial', or 'none'
+                - bootstrap_success_rate: Percentage of successful bootstrap fits
+
+        Raises:
+            ValueError: If model not fitted or variables not found
+        """
+        if self.model is None:
+            raise ValueError("Model not fitted yet. Run fit_model() first.")
+
+        # Check if variables exist in model
+        all_vars = set(self.model.vars['observed']) if hasattr(self.model, 'vars') else set()
+        # Also check latent variables from theory
+        if self.theory and 'latent_variables' in self.theory:
+            all_vars.update(self.theory['latent_variables'].keys())
+
+        for var in [mediator, outcome, predictor]:
+            if var not in all_vars:
+                raise ValueError(f"Variable '{var}' not found in model variables")
+
+        # Get the parameter estimates
+        if self.parameter_estimates is None:
+            raise ValueError("No parameter estimates available")
+
+        estimates = self.parameter_estimates
+
+        # Extract the two paths needed for indirect effect
+        # Path a: predictor → mediator
+        path_a_mask = (estimates['lval'] == mediator) & (estimates['rval'] == predictor)
+        # Path b: outcome ← mediator
+        path_b_mask = (estimates['lval'] == outcome) & (estimates['rval'] == mediator)
+        # Direct path c': outcome ← predictor
+        path_c_mask = (estimates['lval'] == outcome) & (estimates['rval'] == predictor)
+
+        path_a = estimates[path_a_mask]
+        path_b = estimates[path_b_mask]
+        path_c = estimates[path_c_mask]
+
+        if len(path_a) == 0:
+            raise ValueError(f"Path {predictor} → {mediator} not found in model")
+        if len(path_b) == 0:
+            raise ValueError(f"Path {mediator} → {outcome} not found in model")
+
+        # Get estimates
+        a_est = path_a['Estimate'].values[0]
+        b_est = path_b['Estimate'].values[0]
+        indirect_est = a_est * b_est
+
+        direct_est = 0.0
+        if len(path_c) > 0:
+            direct_est = path_c['Estimate'].values[0]
+        total_est = direct_est + indirect_est
+
+        # Use bootstrap CIs from existing bootstrap method
+        bootstrap_df = self.bootstrap_confidence_intervals(
+            data=self.data,
+            n_bootstrap=n_bootstrap,
+            alpha=alpha
+        )
+
+        # Extract CIs for relevant parameters
+        def get_ci(param_name: str):
+            matches = bootstrap_df[bootstrap_df['parameter'] == param_name]
+            if len(matches) > 0:
+                row = matches.iloc[0]
+                return (row['ci_lower'], row['ci_upper'])
+            return (np.nan, np.nan)
+
+        # Get parameter names as they appear in bootstrap output
+        # They might be formatted like "mediator ~ predictor"
+        a_param = f"{mediator} ~ {predictor}"
+        b_param = f"{outcome} ~ {mediator}"
+        c_param = f"{outcome} ~ {predictor}"
+
+        a_ci = get_ci(a_param)
+        b_ci = get_ci(b_param)
+        c_ci = get_ci(c_param)
+
+        # For indirect effect, we need to compute CI from bootstrap distribution
+        # The bootstrap_confidence_intervals method returns individual parameters,
+        # not products. We'll compute indirect effect CI manually from the bootstrap
+        # samples if we can access the distribution. But our method only returns
+        # summary stats. So we'll approximate using the delta method:
+        # SE(indirect) ≈ sqrt( (b*SE(a))^2 + (a*SE(b))^2 )
+        # CI = estimate ± z * SE
+
+        a_se = bootstrap_df[bootstrap_df['parameter'] == a_param]['bootstrap_std_error'].values[0] if len(bootstrap_df[bootstrap_df['parameter'] == a_param]) > 0 else np.nan
+        b_se = bootstrap_df[bootstrap_df['parameter'] == b_param]['bootstrap_std_error'].values[0] if len(bootstrap_df[bootstrap_df['parameter'] == b_param]) > 0 else np.nan
+
+        if not np.isnan(a_se) and not np.isnan(b_se):
+            # Approximate SE of product using delta method
+            indirect_se = np.sqrt((b_est * a_se)**2 + (a_est * b_se)**2)
+            z_val = 1.96 if alpha == 0.05 else 2.576  # 95% or 99% CI
+            indirect_ci = (indirect_est - z_val * indirect_se, indirect_est + z_val * indirect_se)
+        else:
+            indirect_ci = (np.nan, np.nan)
+
+        direct_se = bootstrap_df[bootstrap_df['parameter'] == c_param]['bootstrap_std_error'].values[0] if len(bootstrap_df[bootstrap_df['parameter'] == c_param]) > 0 else np.nan
+        if not np.isnan(direct_se):
+            z_val = 1.96 if alpha == 0.05 else 2.576
+            direct_ci = (direct_est - z_val * direct_se, direct_est + z_val * direct_se)
+        else:
+            direct_ci = (np.nan, np.nan)
+
+        total_se = np.sqrt(direct_se**2 + indirect_se**2) if not np.isnan(direct_se) and not np.isnan(indirect_se) else np.nan
+        if not np.isnan(total_se):
+            z_val = 1.96 if alpha == 0.05 else 2.576
+            total_ci = (total_est - z_val * total_se, total_est + z_val * total_se)
+        else:
+            total_ci = (np.nan, np.nan)
+
+        # Determine mediation type
+        mediated = not (indirect_ci[0] <= 0 <= indirect_ci[1])  # CI excludes 0
+        if mediated:
+            if direct_ci[0] <= 0 <= direct_ci[1]:  # direct effect non-significant
+                mediation_type = "full"
+            else:
+                mediation_type = "partial"
+        else:
+            mediation_type = "none"
+
+        avg_success = bootstrap_df['bootstrap_success_rate'].mean() if 'bootstrap_success_rate' in bootstrap_df.columns else 100.0
+
+        result = {
+            'path_a': a_est,
+            'path_b': b_est,
+            'path_c_direct': direct_est,
+            'indirect_effect': indirect_est,
+            'total_effect': total_est,
+            'direct_ci': direct_ci,
+            'indirect_ci': indirect_ci,
+            'total_ci': total_ci,
+            'mediated': mediated,
+            'mediation_type': mediation_type,
+            'variables': {
+                'mediator': mediator,
+                'outcome': outcome,
+                'predictor': predictor
+            },
+            'bootstrap_samples': n_bootstrap,
+            'bootstrap_success_rate': avg_success
+        }
+
+        # Print summary
+        print("\n[Mediation Analysis]")
+        print(f"  Model: {predictor} → {mediator} → {outcome}")
+        print(f"  Path a ({predictor} → {mediator}): {a_est:.3f}")
+        print(f"  Path b ({mediator} → {outcome}): {b_est:.3f}")
+        print(f"  Direct effect c' ({predictor} → {outcome}): {direct_est:.3f}")
+        print(f"  Indirect effect (a×b): {indirect_est:.3f}")
+        print(f"  Total effect: {total_est:.3f}")
+        print(f"  Indirect effect 95% CI: [{indirect_ci[0]:.3f}, {indirect_ci[1]:.3f}]")
+        if mediated:
+            print(f"  ✓ Mediation is {'statistically significant' if mediated else 'not significant'}")
+            print(f"  Type: {mediation_type} mediation")
+        else:
+            print(f"  ✗ No mediation detected (indirect effect CI includes 0)")
+
+        return result
+
     def interactive_workflow(self, filepath: str):
         """
         Run the complete interactive workflow with a user.

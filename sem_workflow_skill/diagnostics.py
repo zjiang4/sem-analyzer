@@ -184,34 +184,86 @@ class SEMDiagnostics:
         return issues
 
     @staticmethod
-    def suggest_modifications(model, data: pd.DataFrame) -> List[Dict]:
+    def suggest_modifications(model, data: pd.DataFrame, residual_threshold: float = 0.1) -> List[Dict]:
         """
-        Suggest model modifications based on diagnostics.
+        Suggest model modifications based on residual analysis.
 
-        Note: semopy doesn't have built-in modification indices,
-        so this provides general suggestions.
+        This implementation computes normalized residuals between observed
+        and model-implied covariance matrices, and suggests adding error
+        covariances for indicator pairs with large residuals.
 
         Args:
             model: Fitted semopy model
-            data: Dataset
+            data: Dataset used for fitting
+            residual_threshold: Absolute residual value to trigger suggestion (default 0.1)
 
         Returns:
-            List of suggested modifications
+            List of suggested modifications, each with:
+            - type: 'covariance'
+            - variables: (var1, var2)
+            - residual_value: the normalized residual magnitude
+            - suggestion: what to add to model
+            - caveat: theoretical justification needed
         """
         suggestions = []
 
-        # These would be implemented based on:
-        # 1. Residual correlations
-        # 2. Modification indices
-        # 3. Theoretical justification
+        try:
+            import numpy as np
+            from semopy import calc_stats
 
-        # Placeholder suggestions
-        suggestions.append(
-            {
-                "type": "covariance",
-                "suggestion": "Add error covariance between indicators with high residual correlation",
-                "caveat": "Only add if theoretically justified",
-            }
-        )
+            # Get observed and model-implied covariance matrices
+            observed_cov = data.cov()
+            # semopy's model object has mx_sigma (model-implied covariance)
+            if hasattr(model, 'mx_sigma'):
+                implied_cov = pd.DataFrame(
+                    model.mx_sigma,
+                    index=model.vars['observed'],
+                    columns=model.vars['observed']
+                )
+            else:
+                # Fallback: compute from stats
+                stats = calc_stats(model)
+                implied_cov = None
+
+            if implied_cov is not None and observed_cov.shape == implied_cov.shape:
+                # Compute normalized residuals: (obs - impl) / sqrt(impl_var)
+                residuals = observed_cov - implied_cov
+                # Standardize by square root of diagonal (approx. se)
+                se_approx = np.sqrt(np.diag(implied_cov))
+                se_matrix = np.outer(se_approx, se_approx)
+                norm_residuals = residuals / se_matrix
+
+                # Find large off-diagonal residuals
+                upper_idx = np.triu_indices_from(norm_residuals, k=1)
+                for i, j in zip(upper_idx[0], upper_idx[1]):
+                    var1 = norm_residuals.index[i]
+                    var2 = norm_residuals.columns[j]
+                    resid_val = abs(norm_residuals.iloc[i, j])
+                    if resid_val > residual_threshold:
+                        suggestions.append({
+                            "type": "covariance",
+                            "variables": (var1, var2),
+                            "residual_value": float(resid_val),
+                            "suggestion": f"Add {var1} ~~ {var2} (normalized residual = {resid_val:.2f})",
+                            "caveat": "Only add if theoretically justified (shared method variance, correlated errors)"
+                        })
+
+            # Sort by residual magnitude descending
+            suggestions.sort(key=lambda x: x['residual_value'], reverse=True)
+
+            # Add generic advice if no specific suggestions
+            if len(suggestions) == 0:
+                suggestions.append({
+                    "type": "general",
+                    "suggestion": "Model fit appears adequate; no large residuals detected",
+                    "caveat": "Continue with current specification"
+                })
+
+        except Exception as e:
+            suggestions.append({
+                "type": "error",
+                "suggestion": f"Could not compute modification indices: {e}",
+                "caveat": "Manual review needed"
+            })
 
         return suggestions
